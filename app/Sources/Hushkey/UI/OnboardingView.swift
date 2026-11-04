@@ -18,7 +18,7 @@ struct OnboardingView: View {
             step(
                 done: model.cameraAuthorized,
                 title: "Camera",
-                detail: "Hushkey reads your mouth from the webcam. Frames are processed locally and never stored, except clips you record in “Train on my mouth”.",
+                detail: "Hushkey reads your mouth from the webcam. Frames are processed locally and never stored, except prompted enrollment clips and examples you explicitly confirm in “Learn from dictation”.",
                 action: "Allow camera"
             ) { Task { await model.requestCamera() } }
             step(
