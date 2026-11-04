@@ -31,7 +31,7 @@ final class AirPodsCapture {
                 guard let self, self.generation == current else { return }
                 if let error { self.status = String(error.localizedDescription.prefix(180)); return }
                 guard let motion else { return }
-                self.status = "Recording AirPods motion"
+                self.status = "AirPods motion received"
                 let a = motion.userAcceleration, r = motion.rotationRate, angle = motion.attitude
                 self.points.append([
                     "t": motion.timestamp,
