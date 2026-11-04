@@ -8,6 +8,8 @@ final class BackendClient: NSObject, URLSessionWebSocketDelegate {
         case partial(String)
         case final([String: Any])
         case error(String)
+        case captureSaved(String)
+        case reviewError(String)
     }
 
     var onEvent: ((Event) -> Void)?
@@ -84,6 +86,8 @@ final class BackendClient: NSObject, URLSessionWebSocketDelegate {
             onEvent?(.connected(obj["info"] as? [String: Any] ?? [:]))
         case "partial": onEvent?(.partial(obj["text"] as? String ?? ""))
         case "final": onEvent?(.final(obj))
+        case "capture_saved": onEvent?(.captureSaved(obj["capture_id"] as? String ?? ""))
+        case "review_error": onEvent?(.reviewError(obj["message"] as? String ?? "Save failed"))
         case "error": onEvent?(.error(obj["message"] as? String ?? "unknown error"))
         default: break
         }

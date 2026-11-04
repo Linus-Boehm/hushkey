@@ -28,6 +28,11 @@ struct MenuView: View {
                 }
             }
 
+            Button("Learn from dictation…") { open("learning") }
+            if model.pendingCaptureID != nil {
+                Text("A capture is ready to review and save.").font(.caption)
+            }
+
             if !model.history.isEmpty {
                 Divider()
                 Text("Recent").font(.caption).foregroundStyle(.secondary)

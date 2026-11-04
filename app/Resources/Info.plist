@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Hushkey reads your silent lip, jaw and throat movements from the camera and turns them into text. Video is processed on this Mac and is never uploaded.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Hushkey records AirPods motion during reviewable dictations. Only examples you confirm are saved locally for training experiments.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>

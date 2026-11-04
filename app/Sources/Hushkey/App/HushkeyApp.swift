@@ -24,6 +24,11 @@ struct HushkeyApp: App {
         }
         .windowResizability(.contentSize)
 
+        Window("Learn from dictation", id: "learning") {
+            LearningView().environment(model)
+        }
+        .windowResizability(.contentSize)
+
         Settings {
             SettingsView().environment(model)
         }

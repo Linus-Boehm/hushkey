@@ -30,7 +30,7 @@ final class CapturePipeline {
 
     init(client: BackendClient) {
         self.client = client
-        camera.onFrame = { [weak self] pb, t in self?.handle(pb, t) }
+        camera.onFrame = { [weak self] pb, t, uptime in self?.handle(pb, t, uptime) }
     }
 
     var isCameraRunning: Bool { camera.isRunning }
@@ -70,11 +70,12 @@ final class CapturePipeline {
         camera.queue.async { [gate] in gate.reset() }
     }
 
-    private func handle(_ pb: CVPixelBuffer, _ t: Double) {
+    private func handle(_ pb: CVPixelBuffer, _ t: Double, _ uptime: Double) {
         let wantPreview = state.get().wantPreview
         let out = processor.process(pb, time: t, encode: true, wantPreview: wantPreview)
         var handsFree = false
-        if let wire = out.wire {
+        if var wire = out.wire {
+            wire["callback_uptime"] = uptime
             state.mutate { s in
                 handsFree = s.handsFree
                 if s.recording {

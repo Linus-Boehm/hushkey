@@ -18,7 +18,7 @@ final class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     let session = AVCaptureSession()
     let queue = DispatchQueue(label: "hushkey.camera", qos: .userInteractive)
-    var onFrame: ((CVPixelBuffer, Double) -> Void)?
+    var onFrame: ((CVPixelBuffer, Double, Double) -> Void)?
     private(set) var isRunning = false
 
     static var authorization: AVAuthorizationStatus { AVCaptureDevice.authorizationStatus(for: .video) }
@@ -85,6 +85,6 @@ final class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let pb = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let t = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
-        onFrame?(pb, t)
+        onFrame?(pb, t, ProcessInfo.processInfo.systemUptime)
     }
 }
