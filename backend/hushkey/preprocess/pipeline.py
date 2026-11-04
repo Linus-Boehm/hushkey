@@ -24,6 +24,7 @@ class RawFrame:
     t: float  # seconds
     gray: np.ndarray  # (H, W) uint8
     kp: Optional[np.ndarray]  # (11, 2) or None
+    callback_uptime: Optional[float] = None
 
 
 @dataclass
@@ -49,7 +50,7 @@ def decode_wire_frame(msg: Mapping) -> RawFrame:
     gray = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
     if gray is None:
         raise ValueError("could not decode JPEG frame")
-    return RawFrame(t=float(msg["t"]), gray=gray, kp=keypoints_from_mapping(msg.get("kp")))
+    return RawFrame(t=float(msg["t"]), gray=gray, kp=keypoints_from_mapping(msg.get("kp")), callback_uptime=msg.get("callback_uptime"))
 
 
 def resample_indices(times: Sequence[float], fps: float = MODEL_FPS) -> list[int]:

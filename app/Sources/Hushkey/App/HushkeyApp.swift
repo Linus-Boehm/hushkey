@@ -7,6 +7,12 @@ struct HushkeyApp: App {
     @State private var model = AppModel()
 
     var body: some Scene {
+        Window("Hushkey", id: "main") {
+            HomeView(delegate: delegate).environment(model)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+
         MenuBarExtra {
             MenuView().environment(model)
         } label: {
@@ -24,9 +30,33 @@ struct HushkeyApp: App {
         }
         .windowResizability(.contentSize)
 
+        Window("Learn from dictation", id: "learning") {
+            LearningView().environment(model)
+        }
+        .windowResizability(.contentSize)
+
         Settings {
             SettingsView().environment(model)
         }
+    }
+}
+
+struct HomeView: View {
+    let delegate: AppDelegate
+    @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        MenuView()
+            .padding(12)
+            .task {
+                delegate.model = model
+                delegate.showMainWindow = {
+                    openWindow(id: "main")
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                model.start()
+            }
     }
 }
 
@@ -61,6 +91,12 @@ struct MenuBarLabel: View {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var model: AppModel?
+    var showMainWindow: (() -> Void)?
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MainActor.assumeIsolated { showMainWindow?() }
+        return true
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated { model?.shutdown() }

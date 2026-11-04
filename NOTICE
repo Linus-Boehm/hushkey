@@ -27,3 +27,9 @@ Not used
 --------
 * AV-HuBERT (facebookresearch/av_hubert) is under a non-commercial research license and depends on a
   fairseq fork; Hushkey does not include or require it.
+
+Personal learning fork
+---------------------
+* app/Sources/Hushkey/Learning/AirPodsCapture.swift — CoreMotion collection adapted
+  from joeblau/subvox (MIT, Copyright (c) 2026 Joe Blau).
+  Full notice: licenses/Subvox-MIT.txt.

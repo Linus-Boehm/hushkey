@@ -34,6 +34,16 @@ final class AppModel {
     var handsFreeLocked = false
     var autoMode = AppSettings.handsFree
 
+    var learningEnabled = false
+    var pendingCaptureID: String?
+    var reviewText = ""
+    var reviewMessage = "Enable review, then dictate a phrase using your usual hotkey."
+    var isSavingCapture = false
+    let airPods = AirPodsCapture()
+    @ObservationIgnored private var learningSessionID = UUID()
+    @ObservationIgnored private var sessionReview = false
+    @ObservationIgnored private var saveTimeoutTask: Task<Void, Never>?
+
     // Enrollment ("Train on my mouth")
     var enrollmentPrompt: String?  // non-nil while the enrollment window is open
     var lastEnrollment: (prompt: String, heard: String)?
@@ -87,6 +97,7 @@ final class AppModel {
     }
 
     func shutdown() {
+        airPods.stop()
         hotkeys.stop()
         pipeline.stopCamera()
         client.disconnect()
@@ -105,6 +116,7 @@ final class AppModel {
     }
 
     func restartBackend() {
+        discardReviewedCapture()
         client.disconnect()
         backendConnected = false
         backend.restartServer(command: AppSettings.backendCommand)
@@ -176,7 +188,7 @@ final class AppModel {
     var isBusy: Bool { phase == .listening || phase == .transcribing }
 
     func beginDictation() {
-        guard !isBusy else { return }  // one utterance at a time
+        guard !isBusy, !isSavingCapture else { return }  // one utterance at a time
         guard backendConnected else {
             fail("Backend not connected — is `hushkey serve` running?")
             return
@@ -184,10 +196,18 @@ final class AppModel {
         guard ensureCamera() else { return }
         sessionApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         sessionEnrollText = enrollmentPrompt
+        pendingCaptureID = nil
+        reviewText = ""
+        sessionReview = learningEnabled && sessionEnrollText == nil
+        if sessionReview {
+            reviewMessage = "Recording a reviewable example…"
+            airPods.begin()
+        }
         partial = ""
         phase = .listening
         hud.show()
         var start: [String: Any] = ["type": "start", "partials": AppSettings.showPartials]
+        start["review_capture"] = sessionReview
         if let app = sessionApp { start["app"] = app }
         if let e = sessionEnrollText { start["enroll_text"] = e }
         pipeline.beginUtterance(start)
@@ -197,7 +217,9 @@ final class AppModel {
         guard phase == .listening else { return }
         phase = .transcribing
         handsFreeLocked = false
-        pipeline.endUtterance(["type": "stop"])
+        var stop: [String: Any] = ["type": "stop"]
+        if sessionReview { stop["capture"] = airPods.finish(sessionID: learningSessionID) }
+        pipeline.endUtterance(stop)
         finalTimeoutTask?.cancel()
         finalTimeoutTask = after(30) { [weak self] in
             if self?.phase == .transcribing { self?.fail("Timed out waiting for the backend.") }
@@ -206,6 +228,7 @@ final class AppModel {
 
     func cancelDictation() {
         guard isBusy else { return }
+        airPods.discard()
         pipeline.endUtterance(["type": "cancel"])
         handsFreeLocked = false
         phase = .idle
@@ -226,6 +249,7 @@ final class AppModel {
     }
 
     private func fail(_ message: String) {
+        airPods.stop()
         phase = .error(message)
         hud.show()
         hud.hide(after: 3)
@@ -256,15 +280,25 @@ final class AppModel {
             backendInfo = info
         case .disconnected(let reason):
             backendConnected = false
+            discardReviewedCapture()
+            reviewMessage = "Backend disconnected. Unsaved capture discarded."
             appendLog("disconnected: \(reason)")
             if isBusy { fail("Backend disconnected.") }
         case .partial(let text):
             if phase == .listening { partial = text }
         case .final(let obj):
+            guard phase == .transcribing else { return }
             finalTimeoutTask?.cancel()
             let text = (obj["text"] as? String) ?? ""
             let raw = (obj["raw"] as? String) ?? ""
             let latency = (obj["latency_ms"] as? Int) ?? 0
+            if sessionReview, learningEnabled {
+                pendingCaptureID = obj["capture_id"] as? String
+                reviewText = raw.isEmpty ? text : raw
+                reviewMessage = pendingCaptureID == nil
+                    ? (obj["review_error"] as? String ?? "No reviewable capture returned.")
+                    : "Review the exact words you mouthed, then confirm to save locally."
+            }
             if let prompt = sessionEnrollText {
                 lastEnrollment = (prompt, raw)
                 if obj["enrolled"] != nil { enrolledThisSession += 1 }
@@ -287,11 +321,54 @@ final class AppModel {
             phase = .idle
             hud.hide(after: 1.2)
             scheduleCameraIdle()
+        case .captureSaved(let captureID):
+            guard captureID == pendingCaptureID else { return }
+            saveTimeoutTask?.cancel()
+            isSavingCapture = false
+            pendingCaptureID = nil
+            reviewMessage = "Saved locally for personal training. Motion retained for future experiments."
+            enrolledThisSession += 1
+        case .reviewError(let message):
+            saveTimeoutTask?.cancel()
+            isSavingCapture = false
+            reviewMessage = message
         case .error(let message):
             finalTimeoutTask?.cancel()
             fail(message)
             scheduleCameraIdle()
         }
+    }
+
+    // MARK: Explicitly reviewed training examples
+
+    func setLearningEnabled(_ enabled: Bool) {
+        learningEnabled = enabled
+        if !enabled { discardReviewedCapture() }
+    }
+
+    func saveReviewedCapture() {
+        guard let captureID = pendingCaptureID, !isSavingCapture, !isBusy else { return }
+        isSavingCapture = true
+        client.send(["type": "confirm_capture", "capture_id": captureID, "text": reviewText])
+        saveTimeoutTask = after(10) { [weak self] in
+            self?.isSavingCapture = false
+            self?.reviewMessage = "Save acknowledgement timed out. Retry to confirm; retries do not duplicate examples."
+        }
+    }
+
+    func discardReviewedCapture() {
+        saveTimeoutTask?.cancel()
+        isSavingCapture = false
+        pendingCaptureID = nil
+        reviewText = ""
+        reviewMessage = "Unsaved capture discarded."
+        client.send(["type": "discard_capture"])
+    }
+
+    func newLearningSession() {
+        discardReviewedCapture()
+        learningSessionID = UUID()
+        reviewMessage = "New session started. Saved examples remain in your training set."
     }
 
     // MARK: Model-server install

@@ -22,6 +22,8 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 # install its own backend from the onboarding window (no Terminal, no source checkout).
 RES="$APP/Contents/Resources"
 cp "$ROOT/scripts/install_backend.sh" "$RES/install_backend.sh"
+cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$RES/"
+cp -R "$ROOT/licenses" "$RES/licenses"
 mkdir -p "$RES/backend"
 cp -R "$ROOT/backend/hushkey" "$ROOT/backend/pyproject.toml" "$ROOT/backend/README.md" "$RES/backend/"
 rm -rf "$RES/backend"/*.egg-info
