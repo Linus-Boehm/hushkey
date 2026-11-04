@@ -28,10 +28,12 @@ import uuid
 from typing import Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
+
+from .learning import CaptureMetadata, Confirmation, PendingExample
 
 from .engine import Engine
-from .preprocess import NoFaceError, RawFrame, decode_wire_frame, preprocess
+from .preprocess import NoFaceError, RawFrame, Sample, decode_wire_frame, preprocess
 
 log = logging.getLogger("hushkey.server")
 
@@ -55,12 +57,14 @@ def save_enrollment(engine: Engine, sample, text: str) -> str:
     return name
 
 
-def run_final(engine: Engine, frames: list[RawFrame], app: Optional[str], enroll_text: Optional[str]) -> dict:
+def run_final(engine: Engine, frames: list[RawFrame], app: Optional[str], enroll_text: Optional[str], review: Optional[list[Sample]] = None) -> dict:
     t0 = time.time()
     try:
         sample = preprocess(frames)
     except NoFaceError as e:
         return {"type": "error", "message": str(e)}
+    if review is not None:
+        review.append(sample)
     pre_ms = int((time.time() - t0) * 1000)
     out = engine.transcribe(sample, app=app)
     out["preprocess_ms"] = pre_ms
@@ -98,6 +102,8 @@ def create_app(engine: Engine) -> FastAPI:
         opts: dict = {}
         partial_task: Optional[asyncio.Task] = None
         last_partial = 0.0
+        pending: Optional[PendingExample] = None
+        saved_receipt: Optional[dict] = None
 
         async def do_partial(snapshot: list[RawFrame]):
             text = await asyncio.to_thread(run_partial, engine, snapshot)
@@ -109,6 +115,8 @@ def create_app(engine: Engine) -> FastAPI:
                 msg = json.loads(await ws.receive_text())
                 kind = msg.get("type")
                 if kind == "start":
+                    pending = None
+                    saved_receipt = None
                     frames, recording, opts = [], True, msg
                     last_partial = time.time()
                 elif kind == "frame" and recording:
@@ -126,10 +134,37 @@ def create_app(engine: Engine) -> FastAPI:
                 elif kind == "stop" and recording:
                     recording = False
                     snapshot, frames = frames, []
-                    result = await asyncio.to_thread(run_final, engine, snapshot, opts.get("app"), opts.get("enroll_text"))
+                    review = [] if opts.get("review_capture") and not opts.get("enroll_text") else None
+                    result = await asyncio.to_thread(run_final, engine, snapshot, opts.get("app"), opts.get("enroll_text"), review)
+                    if review:
+                        try:
+                            capture = CaptureMetadata.model_validate(msg.get("capture"))
+                            pending = PendingExample.create(review[0], snapshot, capture)
+                            result["capture_id"] = pending.capture_id
+                        except ValidationError:
+                            result["review_error"] = "Invalid capture metadata; this result cannot be saved for training."
+                    snapshot = []
+                    review = None
                     await ws.send_json(result)
+                elif kind == "confirm_capture":
+                    try:
+                        confirmation = Confirmation.model_validate(msg)
+                        if saved_receipt and saved_receipt["capture_id"] == str(confirmation.capture_id):
+                            await ws.send_json(saved_receipt)
+                            continue
+                        if pending is None:
+                            raise ValueError("This capture is no longer available. Record it again.")
+                        name = pending.save(engine.paths.enrollment, confirmation)
+                        saved_receipt = {"type": "capture_saved", "capture_id": pending.capture_id, "path": name}
+                        pending = None
+                        await ws.send_json(saved_receipt)
+                    except (ValueError, OSError) as error:
+                        await ws.send_json({"type": "review_error", "message": str(error)})
+                elif kind == "discard_capture":
+                    pending = None
                 elif kind == "cancel":
                     recording, frames = False, []
+                    pending = None
                 elif kind == "ping":
                     await ws.send_json({"type": "pong"})
         except WebSocketDisconnect:
